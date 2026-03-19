@@ -1,9 +1,52 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
 
+function normalizeToken(token) {
+  if (typeof token !== "string") {
+    return null;
+  }
+  const trimmed = token.trim();
+  if (!trimmed || trimmed === "undefined" || trimmed === "null") {
+    return null;
+  }
+  return trimmed;
+}
+
+function isJwtLikeToken(token) {
+  const normalized = normalizeToken(token);
+  if (!normalized) {
+    return false;
+  }
+  return normalized.split(".").length === 3;
+}
+
+function clearAuthStateAndRedirect() {
+  try {
+    localStorage.removeItem("market_auth_state");
+  } catch {
+    // ignore storage errors
+  }
+  window.location.assign("/login");
+}
+
+function isJwtResponseError(response, payload) {
+  if (response.status !== 422) {
+    return false;
+  }
+  const message = String(payload?.msg || payload?.error || payload?.message || "").toLowerCase();
+  return (
+    message.includes("authorization") ||
+    message.includes("token") ||
+    message.includes("segments") ||
+    message.includes("signature") ||
+    message.includes("header")
+  );
+}
+
 async function request(path, { method = "GET", body, token, headers = {} } = {}) {
   const hasBody = body !== undefined && body !== null;
+  const authToken = isJwtLikeToken(token) ? normalizeToken(token) : null;
   const requestHeaders = {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...headers,
   };
 
@@ -25,18 +68,19 @@ async function request(path, { method = "GET", body, token, headers = {} } = {})
   const payload = contentType.includes("application/json") ? await response.json() : await response.text();
 
   if (response.status === 401) {
-    try {
-      localStorage.removeItem("market_auth_state");
-    } catch {
-      // ignore storage errors
-    }
-    window.location.assign("/login");
+    clearAuthStateAndRedirect();
     const message = payload?.error || payload?.message || "Unauthorized. Redirecting to login.";
     throw new Error(message);
   }
 
+  if (isJwtResponseError(response, payload)) {
+    clearAuthStateAndRedirect();
+    const message = payload?.msg || payload?.error || payload?.message || "Session is invalid. Redirecting to login.";
+    throw new Error(message);
+  }
+
   if (!response.ok) {
-    const message = payload?.error || payload?.message || `Request failed with ${response.status}`;
+    const message = payload?.error || payload?.message || payload?.msg || `Request failed with ${response.status}`;
     throw new Error(message);
   }
 
@@ -104,6 +148,39 @@ export const apiClient = {
     request(`/delivery/shipments/${shipmentId}/status`, { method: "PATCH", token, body }),
   confirmDelivery: (token, shipmentId, body) =>
     request(`/delivery/shipments/${shipmentId}/confirm`, { method: "POST", token, body }),
+
+  getFinanceSummary: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/finance/me/summary${query ? `?${query}` : ""}`, { token });
+  },
+  getFinanceLedger: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/finance/me/ledger${query ? `?${query}` : ""}`, { token });
+  },
+  getFinancePayouts: (token) => request("/finance/me/payouts", { token }),
+
+  adminFinanceOverview: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/finance/admin/overview${query ? `?${query}` : ""}`, { token });
+  },
+  adminFinanceActors: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/finance/admin/actors${query ? `?${query}` : ""}`, { token });
+  },
+  adminFinancePayouts: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/finance/admin/payouts${query ? `?${query}` : ""}`, { token });
+  },
+  createAdminPayout: (token, body) => request("/finance/admin/payouts", { method: "POST", token, body }),
+  approveAdminPayout: (token, payoutId) =>
+    request(`/finance/admin/payouts/${payoutId}/approve`, { method: "PATCH", token }),
+  markAdminPayoutPaid: (token, payoutId, body) =>
+    request(`/finance/admin/payouts/${payoutId}/mark-paid`, { method: "PATCH", token, body }),
+  adminFinanceAdjustments: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/finance/admin/adjustments${query ? `?${query}` : ""}`, { token });
+  },
+  createAdminAdjustment: (token, body) => request("/finance/admin/adjustments", { method: "POST", token, body }),
 
   listUsers: (token, params = {}) => {
     const query = new URLSearchParams(params).toString();

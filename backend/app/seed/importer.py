@@ -14,6 +14,7 @@ from sqlalchemy import func
 
 from app.common.utils import looks_like_url, slugify
 from app.extensions import db
+from app.finance.service import ensure_delivery_ledger_for_shipment
 from app.models import (
     AccountStatus,
     Category,
@@ -37,7 +38,10 @@ from app.models import (
     VendorPayout,
     VendorKycStatus,
     VendorProfile,
+    Shipment,
+    ShipmentStatus,
 )
+from app.seed.mongo_migrator import migrate_sqlite_to_mongo
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SOURCE_TABLES = {"products", "product_images", "product_tags", "product_reviews"}
@@ -67,6 +71,68 @@ def register_seed_commands(app: Flask) -> None:
         """Export user IDs with known/default passwords into CSV."""
         exported_count = export_user_credentials_csv(output_path)
         click.echo(f"Exported {exported_count} users to {output_path}")
+
+    @app.cli.command("sqlite-to-mongo")
+    @click.option(
+        "--sqlite-path",
+        default=Path(app.instance_path) / "ecommerce_app.db",
+        show_default=True,
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    )
+    @click.option("--mongo-uri", default=lambda: os.getenv("MONGODB_URI", ""), show_default=False)
+    @click.option("--db-name", default=lambda: os.getenv("MONGODB_DB_NAME", "ecommerce"), show_default=True)
+    @click.option("--drop-existing/--keep-existing", default=False, show_default=True)
+    def sqlite_to_mongo_command(sqlite_path: Path, mongo_uri: str, db_name: str, drop_existing: bool):
+        """Copy every SQLite table into MongoDB collections with count verification."""
+        if not mongo_uri.strip():
+            raise click.ClickException("MongoDB URI is required. Pass --mongo-uri or set MONGODB_URI.")
+
+        try:
+            result = migrate_sqlite_to_mongo(
+                sqlite_path=sqlite_path,
+                mongo_uri=mongo_uri,
+                db_name=db_name,
+                drop_existing=drop_existing,
+            )
+        except Exception as exc:  # noqa: BLE001 - surface a readable CLI error
+            raise click.ClickException(str(exc)) from exc
+
+        lines = [
+            f"SQLite -> MongoDB migration completed for database '{result['database']}'.",
+            f"Source SQLite: {result['sqlite_path']}",
+            f"Tables migrated: {result['total_tables']}",
+            f"Rows migrated: {result['total_rows']}",
+            "Per-table counts:",
+        ]
+        lines.extend(
+            f"- {row['table_name']}: sqlite={row['source_count']}, mongo={row['target_count']}" for row in result["tables"]
+        )
+        click.echo("\n".join(lines))
+
+    @app.cli.command("finance-backfill-ledger")
+    def finance_backfill_ledger_command():
+        """Create ledger entries for already-delivered shipments that predate the finance rollout."""
+        from app.models import LedgerEntry
+
+        delivered_shipments = (
+            Shipment.query.filter(Shipment.shipment_status == ShipmentStatus.DELIVERED.value)
+            .order_by(Shipment.id.asc())
+            .all()
+        )
+
+        before_count = LedgerEntry.query.count()
+        shipment_count = 0
+        for shipment in delivered_shipments:
+            entries = ensure_delivery_ledger_for_shipment(shipment.id)
+            if entries:
+                shipment_count += 1
+
+        db.session.commit()
+        created_count = LedgerEntry.query.count() - before_count
+        click.echo(
+            f"Finance ledger backfill completed. Delivered shipments processed: {len(delivered_shipments)}. "
+            f"Shipments with ledger coverage: {shipment_count}. Newly created entries: {created_count}."
+        )
 
 
 def run_seed_import(sqlite_path: Path) -> str:

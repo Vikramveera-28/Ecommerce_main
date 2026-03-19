@@ -8,6 +8,7 @@ import RoleGuard from "./components/RoleGuard";
 import AdminDashboardPage from "./workspaces/admin/AdminDashboardPage";
 import AdminModerationPage from "./workspaces/admin/AdminModerationPage";
 import AdminOperationsPage from "./workspaces/admin/AdminOperationsPage";
+import AdminSettlementCenterPage from "./workspaces/admin/AdminSettlementCenterPage";
 import AdminUsersPage from "./workspaces/admin/AdminUsersPage";
 import CustomerCartPage from "./workspaces/customer/CustomerCartPage";
 import CustomerFavoritesPage from "./workspaces/customer/CustomerFavoritesPage";
@@ -19,13 +20,18 @@ import CustomerProductsPage from "./workspaces/customer/CustomerProductsPage";
 import CustomerProfilePage from "./workspaces/customer/CustomerProfilePage";
 import LogisticsDashboardPage from "./workspaces/logistics/LogisticsDashboardPage";
 import LogisticsDeliveryBoysPage from "./workspaces/logistics/LogisticsDeliveryBoysPage";
+import LogisticsEarningsPage from "./workspaces/logistics/LogisticsEarningsPage";
+import LogisticsPayoutsPage from "./workspaces/logistics/LogisticsPayoutsPage";
 import LogisticsShipmentsPage from "./workspaces/logistics/LogisticsShipmentsPage";
 import DeliveryDashboardPage from "./workspaces/delivery/DeliveryDashboardPage";
 import DeliveryEarnedPage from "./workspaces/delivery/DeliveryEarnedPage";
+import DeliveryPayoutsPage from "./workspaces/delivery/DeliveryPayoutsPage";
 import DeliveryShipmentDetailPage from "./workspaces/delivery/DeliveryShipmentDetailPage";
 import DeliveryShipmentsPage from "./workspaces/delivery/DeliveryShipmentsPage";
 import VendorDashboardPage from "./workspaces/vendor/VendorDashboardPage";
+import VendorEarningsPage from "./workspaces/vendor/VendorEarningsPage";
 import VendorOrdersPage from "./workspaces/vendor/VendorOrdersPage";
+import VendorPayoutsPage from "./workspaces/vendor/VendorPayoutsPage";
 import VendorProductsPage from "./workspaces/vendor/VendorProductsPage";
 
 function Protected({ allow, children }) {
@@ -148,6 +154,22 @@ export default function App() {
           </Protected>
         }
       />
+      <Route
+        path="/vendor/earnings"
+        element={
+          <Protected allow={["vendor"]}>
+            <VendorEarningsPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/vendor/payouts"
+        element={
+          <Protected allow={["vendor"]}>
+            <VendorPayoutsPage />
+          </Protected>
+        }
+      />
 
       <Route
         path="/logistics/dashboard"
@@ -173,6 +195,22 @@ export default function App() {
           </Protected>
         }
       />
+      <Route
+        path="/logistics/earnings"
+        element={
+          <Protected allow={["logistics", "admin"]}>
+            <LogisticsEarningsPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/logistics/payouts"
+        element={
+          <Protected allow={["logistics", "admin"]}>
+            <LogisticsPayoutsPage />
+          </Protected>
+        }
+      />
 
       <Route
         path="/delivery/dashboard"
@@ -195,6 +233,14 @@ export default function App() {
         element={
           <Protected allow={["delivery_boy"]}>
             <DeliveryEarnedPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/delivery/payouts"
+        element={
+          <Protected allow={["delivery_boy"]}>
+            <DeliveryPayoutsPage />
           </Protected>
         }
       />
@@ -236,6 +282,14 @@ export default function App() {
         element={
           <Protected allow={["admin"]}>
             <AdminOperationsPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/admin/settlements"
+        element={
+          <Protected allow={["admin"]}>
+            <AdminSettlementCenterPage />
           </Protected>
         }
       />

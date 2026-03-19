@@ -7,6 +7,7 @@ from app.catalog.routes import catalog_bp
 from app.config import Config
 from app.delivery.routes import delivery_bp
 from app.extensions import cors, db, jwt, limiter, migrate
+from app.finance.routes import finance_bp
 from app.logistics.routes import logistics_bp
 from app.models import RevokedToken
 from app.orders.routes import orders_bp
@@ -37,6 +38,7 @@ def create_app(config_object=Config):
     app.register_blueprint(logistics_bp, url_prefix="/api/v1/logistics")
     app.register_blueprint(delivery_bp, url_prefix="/api/v1/delivery")
     app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
+    app.register_blueprint(finance_bp, url_prefix="/api/v1/finance")
 
     register_seed_commands(app)
 

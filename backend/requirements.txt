@@ -6,4 +6,5 @@ Flask-Cors==5.0.0
 Flask-Limiter==3.9.2
 python-dotenv==1.0.1
 psycopg2-binary==2.9.10
+pymongo>=4.6,<5
 pytest==8.3.4

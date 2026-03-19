@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from app.common.authz import current_user, role_required
 from app.extensions import db
+from app.finance.service import ensure_delivery_ledger_for_shipment
 from app.models import Address, DeliveryProfile, Order, OrderStatus, PaymentStatus, Role, Shipment, ShipmentStatus
 from app.payments.service import mark_cod_confirmed
 
@@ -163,6 +164,8 @@ def confirm_delivery(shipment_id: int):
         if order.payment_status == PaymentStatus.COD_PENDING.value:
             order.payment_status = PaymentStatus.COD_CONFIRMED.value
             mark_cod_confirmed(order.id)
+
+    ensure_delivery_ledger_for_shipment(shipment.id)
 
     db.session.commit()
     return jsonify(_delivery_shipment_item(shipment))

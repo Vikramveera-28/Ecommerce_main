@@ -16,22 +16,28 @@ const roleLinks = {
     { to: "/vendor/dashboard", label: "Dashboard" },
     { to: "/vendor/products", label: "Products" },
     { to: "/vendor/orders", label: "Orders" },
+    { to: "/vendor/earnings", label: "Earnings" },
+    { to: "/vendor/payouts", label: "Payouts" },
   ],
   logistics: [
     { to: "/logistics/dashboard", label: "Dashboard" },
     { to: "/logistics/shipments", label: "Shipments" },
     { to: "/logistics/delivery-boys", label: "Delivery Boys" },
+    { to: "/logistics/earnings", label: "Earnings" },
+    { to: "/logistics/payouts", label: "Payouts" },
   ],
   delivery_boy: [
     { to: "/delivery/dashboard", label: "Dashboard" },
     { to: "/delivery/shipments", label: "My Deliveries" },
-    { to: "/delivery/earned", label: "Earned" },
+    { to: "/delivery/earned", label: "Earnings" },
+    { to: "/delivery/payouts", label: "Payouts" },
   ],
   admin: [
     { to: "/admin/dashboard", label: "Dashboard" },
     { to: "/admin/users", label: "Users" },
     { to: "/admin/moderation", label: "Moderation" },
     { to: "/admin/operations", label: "Operations" },
+    { to: "/admin/settlements", label: "Settlements" },
   ],
 };
 
@@ -162,6 +168,8 @@ export default function AppShell({ children }) {
           "/vendor/dashboard": "DB",
           "/vendor/products": "PRD",
           "/vendor/orders": "ORD",
+          "/vendor/earnings": "ERN",
+          "/vendor/payouts": "PAY",
         },
       },
       logistics: {
@@ -175,6 +183,8 @@ export default function AppShell({ children }) {
           "/logistics/dashboard": "DB",
           "/logistics/shipments": "SHP",
           "/logistics/delivery-boys": "BOY",
+          "/logistics/earnings": "ERN",
+          "/logistics/payouts": "PAY",
         },
       },
       delivery_boy: {
@@ -187,7 +197,8 @@ export default function AppShell({ children }) {
         iconByRoute: {
           "/delivery/dashboard": "DB",
           "/delivery/shipments": "DL",
-          "/delivery/earned": "INR",
+          "/delivery/earned": "ERN",
+          "/delivery/payouts": "PAY",
         },
       },
       admin: {
@@ -202,6 +213,7 @@ export default function AppShell({ children }) {
           "/admin/users": "USR",
           "/admin/moderation": "MOD",
           "/admin/operations": "OPS",
+          "/admin/settlements": "SET",
         },
       },
     };

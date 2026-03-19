@@ -72,8 +72,35 @@ class ShipmentStatus(str, Enum):
 
 class PayoutStatus(str, Enum):
     PENDING = "pending"
+    APPROVED = "approved"
     PAID = "paid"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class LedgerActorType(str, Enum):
+    VENDOR = "vendor"
+    DELIVERY_BOY = "delivery_boy"
+    LOGISTICS = "logistics"
+    PLATFORM = "platform"
+
+
+class LedgerSourceType(str, Enum):
+    ORDER_ITEM = "order_item"
+    SHIPMENT = "shipment"
+    ADJUSTMENT = "adjustment"
+
+
+class LedgerDirection(str, Enum):
+    CREDIT = "credit"
+    DEBIT = "debit"
+
+
+class LedgerStatus(str, Enum):
+    PENDING = "pending"
+    ELIGIBLE = "eligible"
+    SETTLED = "settled"
+    VOID = "void"
 
 
 class ReturnStatus(str, Enum):
@@ -439,6 +466,58 @@ class Coupon(TimestampMixin, AuditMixin, SoftDeleteMixin, db.Model):
     active = db.Column(db.Boolean, nullable=False, default=True)
     valid_from = db.Column(db.DateTime, nullable=True)
     valid_to = db.Column(db.DateTime, nullable=True)
+
+
+class Payout(TimestampMixin, AuditMixin, SoftDeleteMixin, db.Model):
+    __tablename__ = "payouts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    actor_type = db.Column(db.String(32), nullable=False)
+    actor_id = db.Column(db.Integer, nullable=True)
+    period_start = db.Column(db.DateTime, nullable=False)
+    period_end = db.Column(db.DateTime, nullable=False)
+    gross_amount = db.Column(db.Float, nullable=False, default=0.0)
+    net_amount = db.Column(db.Float, nullable=False, default=0.0)
+    status = db.Column(db.String(20), nullable=False, default=PayoutStatus.PENDING.value)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    paid_at = db.Column(db.DateTime, nullable=True)
+    payment_ref = db.Column(db.String(255), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    ledger_entries = db.relationship("LedgerEntry", back_populates="payout", lazy="dynamic")
+
+    __table_args__ = (
+        db.Index("idx_payouts_actor_period", "actor_type", "actor_id", "period_start", "period_end"),
+        db.Index("idx_payouts_status_created", "status", "created_at"),
+    )
+
+
+class LedgerEntry(TimestampMixin, AuditMixin, SoftDeleteMixin, db.Model):
+    __tablename__ = "ledger_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    actor_type = db.Column(db.String(32), nullable=False)
+    actor_id = db.Column(db.Integer, nullable=True)
+    source_type = db.Column(db.String(32), nullable=True)
+    source_id = db.Column(db.Integer, nullable=True)
+    entry_code = db.Column(db.String(64), nullable=False)
+    reference_key = db.Column(db.String(255), nullable=True, unique=True)
+    direction = db.Column(db.String(16), nullable=False, default=LedgerDirection.CREDIT.value)
+    amount = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String(8), nullable=False, default="INR")
+    status = db.Column(db.String(20), nullable=False, default=LedgerStatus.PENDING.value)
+    description = db.Column(db.Text, nullable=True)
+    effective_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    payout_id = db.Column(db.Integer, db.ForeignKey("payouts.id"), nullable=True)
+
+    payout = db.relationship("Payout", back_populates="ledger_entries")
+
+    __table_args__ = (
+        db.Index("idx_ledger_actor_effective", "actor_type", "actor_id", "effective_at"),
+        db.Index("idx_ledger_status_effective", "status", "effective_at"),
+        db.Index("idx_ledger_source", "source_type", "source_id"),
+        db.Index("idx_ledger_payout", "payout_id"),
+    )
 
 
 class VendorPayout(TimestampMixin, AuditMixin, SoftDeleteMixin, db.Model):
