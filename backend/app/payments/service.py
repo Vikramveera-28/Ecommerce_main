@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from app.extensions import db
 from app.models import CustomerPaymentCard, Payment, PaymentMethod, PaymentStatus
@@ -16,7 +17,7 @@ def create_cod_payment(order_id: int, amount: float) -> Payment:
     return payment
 
 
-def mark_cod_confirmed(order_id: int) -> Payment | None:
+def mark_cod_confirmed(order_id: int) -> Optional[Payment]:
     payment = Payment.query.filter_by(order_id=order_id).first()
     if not payment:
         return None
@@ -38,7 +39,9 @@ def create_card_payment(order_id: int, amount: float, card_last4: str) -> Paymen
     return payment
 
 
-def verify_customer_card(customer_id: int, card_number: str, card_pin: str) -> CustomerPaymentCard | None:
+def verify_customer_card(
+    customer_id: int, card_number: str, card_pin: str
+) -> Optional[CustomerPaymentCard]:
     profile = CustomerPaymentCard.query.filter_by(customer_id=customer_id).first()
     if not profile:
         return None
