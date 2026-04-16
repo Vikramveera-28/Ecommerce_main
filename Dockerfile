@@ -11,22 +11,17 @@ WORKDIR /app
 COPY backend/ ./backend/
 RUN python3 -m pip install --no-cache-dir -r backend/requirements.txt
 
-# Copy frontend and install Node dependencies
+# Copy frontend and install Node dependencies, then build static assets
 COPY frontend/ ./frontend/
 WORKDIR /app/frontend
 RUN npm install
+RUN npm run build
 
-# Expose backend (Flask) and frontend (Vite) ports
-EXPOSE 5000 5173
+# Expose backend port
+EXPOSE 5000
 
 # Go back to app root
 WORKDIR /app
 
-# Start both backend and frontend in the same container
-# - Backend: Flask app via manage.py on port 5000
-# - Frontend: Vite dev server on port 5173
-CMD ["/bin/bash", "-lc", "\
-  cd /app/backend && python3 manage.py & \
-  cd /app/frontend && npm run dev -- --host 0.0.0.0 --port 5173 & \
-  wait \
-"]
+# Start backend with Gunicorn on Render-provided port.
+CMD ["/bin/bash", "-lc", "cd /app/backend && gunicorn --bind 0.0.0.0:${PORT:-5000} manage:app"]

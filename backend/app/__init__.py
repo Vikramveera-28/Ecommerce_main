@@ -1,4 +1,6 @@
-from flask import Flask, request
+import os
+
+from flask import Flask, request, send_from_directory
 
 from app.admin.routes import admin_bp
 from app.auth.routes import auth_bp
@@ -13,10 +15,16 @@ from app.models import RevokedToken
 from app.orders.routes import orders_bp
 from app.seed.importer import register_seed_commands
 from app.vendor_portal.routes import vendor_bp
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
 
 
 def create_app(config_object=Config):
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        static_folder=FRONTEND_DIST,
+        static_url_path="/",
+    )
     app.config.from_object(config_object)
 
     db.init_app(app)
@@ -41,6 +49,13 @@ def create_app(config_object=Config):
     app.register_blueprint(finance_bp, url_prefix="/api/v1/finance")
 
     register_seed_commands(app)
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def serve_frontend(path):
+        if path and os.path.exists(os.path.join(FRONTEND_DIST, path)):
+            return send_from_directory(FRONTEND_DIST, path)
+        return send_from_directory(FRONTEND_DIST, "index.html")
 
     @app.get("/health")
     def health_check():
