@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, request, send_from_directory
+from pymongo import MongoClient
 
 from app.admin.routes import admin_bp
 from app.auth.routes import auth_bp
@@ -27,8 +28,19 @@ def create_app(config_object=Config):
     )
     app.config.from_object(config_object)
 
-    db.init_app(app)
-    migrate.init_app(app, db)
+    use_mongo_only = app.config.get("USE_MONGO_ONLY", False)
+
+    if not use_mongo_only:
+        db.init_app(app)
+        migrate.init_app(app, db)
+    else:
+        mongo_uri = app.config.get("MONGODB_URI", "")
+        mongo_db_name = app.config.get("MONGODB_DB_NAME", "ecommerce")
+        if not mongo_uri:
+            raise RuntimeError("MONGODB_URI must be set when USE_MONGO_ONLY is enabled.")
+        mongo_client = MongoClient(mongo_uri, appname="EcommerceApp")
+        app.extensions["mongo_client"] = mongo_client
+        app.extensions["mongo_db"] = mongo_client[mongo_db_name]
     jwt.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
     limiter.init_app(app)
@@ -64,6 +76,11 @@ def create_app(config_object=Config):
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(_jwt_header, jwt_payload):
         jti = jwt_payload.get("jti")
+        if app.config.get("USE_MONGO_ONLY", False):
+            mongo_db = app.extensions.get("mongo_db")
+            if not mongo_db:
+                return False
+            return mongo_db["revoked_tokens"].find_one({"jti": jti}) is not None
         return RevokedToken.query.filter_by(jti=jti).first() is not None
 
     return app
