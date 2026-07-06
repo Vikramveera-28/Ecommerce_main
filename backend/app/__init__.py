@@ -38,7 +38,13 @@ def create_app(config_object=Config):
         mongo_db_name = app.config.get("MONGODB_DB_NAME", "ecommerce")
         if not mongo_uri:
             raise RuntimeError("MONGODB_URI must be set when USE_MONGO_ONLY is enabled.")
-        mongo_client = MongoClient(mongo_uri, appname="EcommerceApp")
+        # connect=False: defer SRV lookup until first use so Gunicorn can bind $PORT on Render.
+        mongo_client = MongoClient(
+            mongo_uri,
+            appname="EcommerceApp",
+            connect=False,
+            serverSelectionTimeoutMS=5000,
+        )
         app.extensions["mongo_client"] = mongo_client
         app.extensions["mongo_db"] = mongo_client[mongo_db_name]
     jwt.init_app(app)
@@ -71,7 +77,17 @@ def create_app(config_object=Config):
 
     @app.get("/health")
     def health_check():
-        return {"status": "ok"}
+        payload = {"status": "ok"}
+        if app.config.get("USE_MONGO_ONLY", False):
+            mongo_client = app.extensions.get("mongo_client")
+            try:
+                mongo_client.admin.command("ping")
+                payload["mongo"] = "ok"
+            except Exception as exc:
+                payload["status"] = "degraded"
+                payload["mongo"] = "error"
+                payload["mongo_error"] = str(exc)
+        return payload
 
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(_jwt_header, jwt_payload):
