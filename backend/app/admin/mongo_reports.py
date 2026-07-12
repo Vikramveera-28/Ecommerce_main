@@ -7,30 +7,43 @@ from app.common.mongo_utils import as_datetime, load_collection
 from app.models import OrderStatus, PaymentStatus
 
 
+def _get(document, key, default=None):
+    if document is None:
+        return default
+    if isinstance(document, dict):
+        return document.get(key, default)
+    return getattr(document, key, default)
+
+
+def _doc_id(document):
+    return _get(document, "id", _get(document, "_id"))
+
+
 def build_sales_report(mongo_db) -> dict:
     orders = load_collection(mongo_db, "orders")
     payments = load_collection(mongo_db, "payments")
     order_items = load_collection(mongo_db, "order_items")
-    vendors = {vendor.id: vendor for vendor in load_collection(mongo_db, "vendor_profiles")}
+    vendors = {_doc_id(vendor): vendor for vendor in load_collection(mongo_db, "vendor_profiles")}
 
     total_orders = len(orders)
-    total_revenue = sum(float(order.total_amount or 0) for order in orders)
+    total_revenue = sum(float(_get(order, "total_amount", 0) or 0) for order in orders)
 
-    cod_pending = sum(1 for payment in payments if payment.payment_status == PaymentStatus.COD_PENDING.value)
-    cod_confirmed = sum(1 for payment in payments if payment.payment_status == PaymentStatus.COD_CONFIRMED.value)
+    cod_pending = sum(1 for payment in payments if _get(payment, "payment_status") == PaymentStatus.COD_PENDING.value)
+    cod_confirmed = sum(1 for payment in payments if _get(payment, "payment_status") == PaymentStatus.COD_CONFIRMED.value)
 
     by_status: dict[str, int] = {}
     for order in orders:
-        status = order.order_status or "unknown"
+        status = _get(order, "order_status") or "unknown"
         by_status[status] = by_status.get(status, 0) + 1
 
     vendor_sales: dict[int, float] = {}
     for item in order_items:
-        order = next((row for row in orders if row.id == item.order_id), None)
-        if not order or order.order_status == OrderStatus.CANCELLED.value:
+        order = next((row for row in orders if _doc_id(row) == _get(item, "order_id")), None)
+        if not order or _get(order, "order_status") == OrderStatus.CANCELLED.value:
             continue
-        revenue = float(item.price or 0) * int(item.quantity or 0)
-        vendor_sales[item.vendor_id] = vendor_sales.get(item.vendor_id, 0.0) + revenue
+        revenue = float(_get(item, "price", 0) or 0) * int(_get(item, "quantity", 0) or 0)
+        vendor_id = _get(item, "vendor_id")
+        vendor_sales[vendor_id] = vendor_sales.get(vendor_id, 0.0) + revenue
 
     top_vendors = []
     for vendor_id, gross_sales in sorted(vendor_sales.items(), key=lambda row: row[1], reverse=True)[:10]:
@@ -38,7 +51,7 @@ def build_sales_report(mongo_db) -> dict:
         top_vendors.append(
             {
                 "vendor_id": vendor_id,
-                "store_name": vendor.store_name if vendor else f"Vendor #{vendor_id}",
+                "store_name": _get(vendor, "store_name", f"Vendor #{vendor_id}"),
                 "gross_sales": float(round(gross_sales, 2)),
             }
         )
@@ -61,56 +74,57 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
     shipments = load_collection(mongo_db, "shipments")
     order_items = load_collection(mongo_db, "order_items")
     payments = load_collection(mongo_db, "payments")
-    users = {user.id: user for user in load_collection(mongo_db, "users")}
-    addresses = {address.id: address for address in load_collection(mongo_db, "addresses")}
-    vendor_profiles = {vendor.id: vendor for vendor in load_collection(mongo_db, "vendor_profiles")}
-    products = {product.id: product for product in load_collection(mongo_db, "products")}
-    categories = {category.id: category for category in load_collection(mongo_db, "categories")}
-    delivery_profiles = {profile.id: profile for profile in load_collection(mongo_db, "delivery_profiles")}
-    logistics_profiles = {profile.id: profile for profile in load_collection(mongo_db, "logistics_profiles")}
+    users = {_doc_id(user): user for user in load_collection(mongo_db, "users")}
+    addresses = {_doc_id(address): address for address in load_collection(mongo_db, "addresses")}
+    vendor_profiles = {_doc_id(vendor): vendor for vendor in load_collection(mongo_db, "vendor_profiles")}
+    products = {_doc_id(product): product for product in load_collection(mongo_db, "products")}
+    categories = {_doc_id(category): category for category in load_collection(mongo_db, "categories")}
+    delivery_profiles = {_doc_id(profile): profile for profile in load_collection(mongo_db, "delivery_profiles")}
+    logistics_profiles = {_doc_id(profile): profile for profile in load_collection(mongo_db, "logistics_profiles")}
 
     ranged_orders = [
         order
         for order in orders
-        if (created_at := as_datetime(order.created_at)) is not None and start <= created_at < end
+        if (created_at := as_datetime(_get(order, "created_at"))) is not None and start <= created_at < end
     ]
-    ranged_orders.sort(key=lambda order: as_datetime(order.created_at) or datetime.min, reverse=True)
+    ranged_orders.sort(key=lambda order: as_datetime(_get(order, "created_at")) or datetime.min, reverse=True)
 
-    valid_orders = [order for order in ranged_orders if order.order_status != OrderStatus.CANCELLED.value]
-    valid_order_ids = {order.id for order in valid_orders}
+    valid_orders = [order for order in ranged_orders if _get(order, "order_status") != OrderStatus.CANCELLED.value]
+    valid_order_ids = {_doc_id(order) for order in valid_orders}
 
     ranged_shipments = [
         shipment
         for shipment in shipments
-        if (created_at := as_datetime(shipment.created_at)) is not None and start <= created_at < end
+        if (created_at := as_datetime(_get(shipment, "created_at"))) is not None and start <= created_at < end
     ]
-    ranged_shipments.sort(key=lambda shipment: as_datetime(shipment.created_at) or datetime.min, reverse=True)
+    ranged_shipments.sort(key=lambda shipment: as_datetime(_get(shipment, "created_at")) or datetime.min, reverse=True)
 
-    shipment_order_ids = {shipment.order_id for shipment in ranged_shipments}
+    shipment_order_ids = {_get(shipment, "order_id") for shipment in ranged_shipments}
     all_relevant_order_ids = valid_order_ids | shipment_order_ids
 
-    scoped_items = [item for item in order_items if item.order_id in all_relevant_order_ids]
-    scoped_payments = [payment for payment in payments if payment.order_id in all_relevant_order_ids]
+    scoped_items = [item for item in order_items if _get(item, "order_id") in all_relevant_order_ids]
+    scoped_payments = [payment for payment in payments if _get(payment, "order_id") in all_relevant_order_ids]
 
-    orders_by_id = {order.id: order for order in ranged_orders}
+    orders_by_id = {_doc_id(order): order for order in ranged_orders}
     for order in orders:
-        if order.id in all_relevant_order_ids and order.id not in orders_by_id:
-            orders_by_id[order.id] = order
+        order_id = _doc_id(order)
+        if order_id in all_relevant_order_ids and order_id not in orders_by_id:
+            orders_by_id[order_id] = order
 
     items_by_order: dict[int, list] = {}
     for item in scoped_items:
-        items_by_order.setdefault(item.order_id, []).append(item)
+        items_by_order.setdefault(_get(item, "order_id"), []).append(item)
 
     payments_by_order: dict[int, list] = {}
     for payment in scoped_payments:
-        payments_by_order.setdefault(payment.order_id, []).append(payment)
+        payments_by_order.setdefault(_get(payment, "order_id"), []).append(payment)
 
-    customer_ids = {order.customer_id for order in orders_by_id.values() if order.customer_id}
+    customer_ids = {_get(order, "customer_id") for order in orders_by_id.values() if _get(order, "customer_id")}
     customer_users = {user_id: users[user_id] for user_id in customer_ids if user_id in users}
 
-    total_revenue = sum(float(order.total_amount or 0) for order in valid_orders)
-    total_items = sum(int(item.quantity or 0) for item in scoped_items if item.order_id in valid_order_ids)
-    delivered_shipments = [shipment for shipment in ranged_shipments if shipment.shipment_status == "delivered"]
+    total_revenue = sum(float(_get(order, "total_amount", 0) or 0) for order in valid_orders)
+    total_items = sum(int(_get(item, "quantity", 0) or 0) for item in scoped_items if _get(item, "order_id") in valid_order_ids)
+    delivered_shipments = [shipment for shipment in ranged_shipments if _get(shipment, "shipment_status") == "delivered"]
     total_deliveries = len(delivered_shipments)
 
     avg_revenue_per_item = (total_revenue / total_items) if total_items else 0.0
@@ -118,16 +132,16 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
 
     vendor_stats: dict[int, dict] = {}
     for item in scoped_items:
-        if item.order_id not in valid_order_ids:
+        if _get(item, "order_id") not in valid_order_ids:
             continue
-        revenue = float(item.price or 0) * int(item.quantity or 0)
+        revenue = float(_get(item, "price", 0) or 0) * int(_get(item, "quantity", 0) or 0)
         stat = vendor_stats.setdefault(
-            item.vendor_id,
-            {"vendor_id": item.vendor_id, "total_revenue": 0.0, "total_items": 0, "order_ids": set()},
+            _get(item, "vendor_id"),
+            {"vendor_id": _get(item, "vendor_id"), "total_revenue": 0.0, "total_items": 0, "order_ids": set()},
         )
         stat["total_revenue"] += revenue
-        stat["total_items"] += int(item.quantity or 0)
-        stat["order_ids"].add(item.order_id)
+        stat["total_items"] += int(_get(item, "quantity", 0) or 0)
+        stat["order_ids"].add(_get(item, "order_id"))
 
     top_vendors = []
     for stat in vendor_stats.values():
@@ -135,7 +149,7 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
         top_vendors.append(
             {
                 "vendor_id": stat["vendor_id"],
-                "store_name": profile.store_name if profile else f"Vendor #{stat['vendor_id']}",
+                "store_name": _get(profile, "store_name", f"Vendor #{stat['vendor_id']}"),
                 "total_revenue": to_float(stat["total_revenue"]),
                 "total_items": int(stat["total_items"]),
                 "total_deliveries": len(stat["order_ids"]),
@@ -146,30 +160,30 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
 
     delivery_stats: dict[int, dict] = {}
     for shipment in ranged_shipments:
-        if not shipment.assigned_delivery_boy_id:
+        if not _get(shipment, "assigned_delivery_boy_id"):
             continue
         stat = delivery_stats.setdefault(
-            shipment.assigned_delivery_boy_id,
-            {"profile_id": shipment.assigned_delivery_boy_id, "total_deliveries": 0, "delivered": 0, "failed": 0, "revenue": 0.0},
+            _get(shipment, "assigned_delivery_boy_id"),
+            {"profile_id": _get(shipment, "assigned_delivery_boy_id"), "total_deliveries": 0, "delivered": 0, "failed": 0, "revenue": 0.0},
         )
         stat["total_deliveries"] += 1
-        if shipment.shipment_status == "delivered":
+        if _get(shipment, "shipment_status") == "delivered":
             stat["delivered"] += 1
-        if shipment.shipment_status == "failed":
+        if _get(shipment, "shipment_status") == "failed":
             stat["failed"] += 1
-        order = orders_by_id.get(shipment.order_id)
-        if order and order.id in valid_order_ids:
-            stat["revenue"] += float(order.total_amount or 0)
+        order = orders_by_id.get(_get(shipment, "order_id"))
+        if order and _doc_id(order) in valid_order_ids:
+            stat["revenue"] += float(_get(order, "total_amount", 0) or 0)
 
     top_delivery_boys = []
     for stat in delivery_stats.values():
         profile = delivery_profiles.get(stat["profile_id"])
-        rider_user = users.get(profile.user_id) if profile else None
+        rider_user = users.get(_get(profile, "user_id")) if profile else None
         top_delivery_boys.append(
             {
                 "profile_id": stat["profile_id"],
-                "name": rider_user.name if rider_user else f"Delivery #{stat['profile_id']}",
-                "email": rider_user.email if rider_user else None,
+                "name": _get(rider_user, "name", f"Delivery #{stat['profile_id']}"),
+                "email": _get(rider_user, "email"),
                 "total_deliveries": int(stat["total_deliveries"]),
                 "delivered": int(stat["delivered"]),
                 "failed": int(stat["failed"]),
@@ -181,14 +195,12 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
 
     customer_stats: dict[int, dict] = {}
     for order in valid_orders:
-        stat = customer_stats.setdefault(
-            order.customer_id,
-            {"customer_id": order.customer_id, "orders": 0, "total_spend": 0.0, "items": 0},
-        )
+        customer_id = _get(order, "customer_id")
+        stat = customer_stats.setdefault(customer_id, {"customer_id": customer_id, "orders": 0, "total_spend": 0.0, "items": 0})
         stat["orders"] += 1
-        stat["total_spend"] += float(order.total_amount or 0)
-        for item in items_by_order.get(order.id, []):
-            stat["items"] += int(item.quantity or 0)
+        stat["total_spend"] += float(_get(order, "total_amount", 0) or 0)
+        for item in items_by_order.get(_doc_id(order), []):
+            stat["items"] += int(_get(item, "quantity", 0) or 0)
 
     top_customers = []
     for stat in customer_stats.values():
@@ -196,8 +208,8 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
         top_customers.append(
             {
                 "customer_id": stat["customer_id"],
-                "name": customer.name if customer else f"Customer #{stat['customer_id']}",
-                "email": customer.email if customer else None,
+                "name": _get(customer, "name", f"Customer #{stat['customer_id']}"),
+                "email": _get(customer, "email"),
                 "total_orders": int(stat["orders"]),
                 "total_items": int(stat["items"]),
                 "total_spend": to_float(stat["total_spend"]),
@@ -209,39 +221,39 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
     item_stats: dict[int, dict] = {}
     category_stats: dict[int, dict] = {}
     for item in scoped_items:
-        if item.order_id not in valid_order_ids:
+        if _get(item, "order_id") not in valid_order_ids:
             continue
-        product = products.get(item.product_id)
-        revenue = float(item.price or 0) * int(item.quantity or 0)
+        product = products.get(_get(item, "product_id"))
+        revenue = float(_get(item, "price", 0) or 0) * int(_get(item, "quantity", 0) or 0)
 
         item_stat = item_stats.setdefault(
-            item.product_id,
-            {"product_id": item.product_id, "qty": 0, "revenue": 0.0, "order_ids": set()},
+            _get(item, "product_id"),
+            {"product_id": _get(item, "product_id"), "qty": 0, "revenue": 0.0, "order_ids": set()},
         )
-        item_stat["qty"] += int(item.quantity or 0)
+        item_stat["qty"] += int(_get(item, "quantity", 0) or 0)
         item_stat["revenue"] += revenue
-        item_stat["order_ids"].add(item.order_id)
+        item_stat["order_ids"].add(_get(item, "order_id"))
 
-        category_id = product.category_id if product else None
+        category_id = _get(product, "category_id") if product else None
         if category_id:
             category_stat = category_stats.setdefault(
                 category_id,
                 {"category_id": category_id, "qty": 0, "revenue": 0.0, "order_ids": set()},
             )
-            category_stat["qty"] += int(item.quantity or 0)
+            category_stat["qty"] += int(_get(item, "quantity", 0) or 0)
             category_stat["revenue"] += revenue
-            category_stat["order_ids"].add(item.order_id)
+            category_stat["order_ids"].add(_get(item, "order_id"))
 
     top_items = []
     for stat in item_stats.values():
         product = products.get(stat["product_id"])
-        category = categories.get(product.category_id) if product else None
+        category = categories.get(_get(product, "category_id")) if product else None
         top_items.append(
             {
                 "product_id": stat["product_id"],
-                "name": product.name if product else f"Item #{stat['product_id']}",
-                "sku": product.sku if product else None,
-                "category": category.name if category else None,
+                "name": _get(product, "name", f"Item #{stat['product_id']}"),
+                "sku": _get(product, "sku"),
+                "category": _get(category, "name"),
                 "total_qty": int(stat["qty"]),
                 "total_revenue": _to_float(stat["revenue"]),
                 "total_deliveries": len(stat["order_ids"]),
@@ -256,7 +268,7 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
         top_categories.append(
             {
                 "category_id": stat["category_id"],
-                "name": category.name if category else f"Category #{stat['category_id']}",
+                "name": _get(category, "name", f"Category #{stat['category_id']}"),
                 "total_qty": int(stat["qty"]),
                 "total_revenue": _to_float(stat["revenue"]),
                 "total_deliveries": len(stat["order_ids"]),
@@ -267,70 +279,70 @@ def build_operations_report(mongo_db, *, range_key: str, start: datetime, end: d
 
     detailed_rows = []
     for shipment in ranged_shipments:
-        order = orders_by_id.get(shipment.order_id)
+        order = orders_by_id.get(_get(shipment, "order_id"))
         if not order:
             continue
-        customer = customer_users.get(order.customer_id)
-        address = addresses.get(order.shipping_address_id)
-        item_rows = items_by_order.get(order.id, [])
-        payment_rows = payments_by_order.get(order.id, [])
-        item_count = sum(int(item.quantity or 0) for item in item_rows)
+        customer = customer_users.get(_get(order, "customer_id"))
+        address = addresses.get(_get(order, "shipping_address_id"))
+        item_rows = items_by_order.get(_doc_id(order), [])
+        payment_rows = payments_by_order.get(_doc_id(order), [])
+        item_count = sum(int(_get(item, "quantity", 0) or 0) for item in item_rows)
 
         vendor_names = []
         item_names = []
         for item in item_rows:
-            vendor = vendor_profiles.get(item.vendor_id)
-            product = products.get(item.product_id)
-            vendor_names.append(vendor.store_name if vendor else f"Vendor #{item.vendor_id}")
-            item_names.append(product.name if product else f"Item #{item.product_id}")
+            vendor = vendor_profiles.get(_get(item, "vendor_id"))
+            product = products.get(_get(item, "product_id"))
+            vendor_names.append(_get(vendor, "store_name", f"Vendor #{_get(item, 'vendor_id')}"))
+            item_names.append(_get(product, "name", f"Item #{_get(item, 'product_id')}"))
 
-        logistics_profile = logistics_profiles.get(shipment.logistics_id)
-        logistics_user = users.get(logistics_profile.user_id) if logistics_profile else None
-        approver_user = users.get(shipment.assigned_by_logistics_id)
-        delivery_profile = delivery_profiles.get(shipment.assigned_delivery_boy_id)
-        delivery_user = users.get(delivery_profile.user_id) if delivery_profile else None
+        logistics_profile = logistics_profiles.get(_get(shipment, "logistics_id"))
+        logistics_user = users.get(_get(logistics_profile, "user_id")) if logistics_profile else None
+        approver_user = users.get(_get(shipment, "assigned_by_logistics_id"))
+        delivery_profile = delivery_profiles.get(_get(shipment, "assigned_delivery_boy_id"))
+        delivery_user = users.get(_get(delivery_profile, "user_id")) if delivery_profile else None
 
-        payment_status = payment_rows[0].payment_status if payment_rows else order.payment_status
-        payment_method = payment_rows[0].payment_method if payment_rows else None
+        payment_status = _get(payment_rows[0], "payment_status") if payment_rows else _get(order, "payment_status")
+        payment_method = _get(payment_rows[0], "payment_method") if payment_rows else None
 
         row = {
-            "shipment_id": shipment.id,
-            "tracking_number": shipment.tracking_number,
-            "shipment_status": shipment.shipment_status,
-            "order_id": order.id,
-            "order_status": order.order_status,
-            "order_total": _to_float(order.total_amount),
+            "shipment_id": _doc_id(shipment),
+            "tracking_number": _get(shipment, "tracking_number"),
+            "shipment_status": _get(shipment, "shipment_status"),
+            "order_id": _doc_id(order),
+            "order_status": _get(order, "order_status"),
+            "order_total": _to_float(_get(order, "total_amount")),
             "payment_status": payment_status,
             "payment_method": payment_method,
             "item_count": int(item_count),
             "items": ", ".join(sorted(set(item_names))),
             "vendors": ", ".join(sorted(set(vendor_names))),
-            "customer_name": customer.name if customer else (address.full_name if address else "-"),
-            "customer_email": customer.email if customer else None,
-            "customer_phone": address.phone if address else None,
+            "customer_name": _get(customer, "name", _get(address, "full_name", "-")),
+            "customer_email": _get(customer, "email"),
+            "customer_phone": _get(address, "phone"),
             "customer_address": (
                 ", ".join(
                     part
                     for part in [
-                        getattr(address, "address_line_1", None),
-                        getattr(address, "address_line_2", None),
-                        getattr(address, "city", None),
-                        getattr(address, "state", None),
-                        getattr(address, "postal_code", None),
+                        _get(address, "address_line_1"),
+                        _get(address, "address_line_2"),
+                        _get(address, "city"),
+                        _get(address, "state"),
+                        _get(address, "postal_code"),
                     ]
                     if part
                 )
                 if address
                 else None
             ),
-            "logistics_owner": logistics_user.name if logistics_user else None,
-            "approved_by_logistics": approver_user.name if approver_user else None,
-            "delivery_boy": delivery_user.name if delivery_user else None,
-            "assigned_time": _iso_or_none(shipment.assigned_time),
-            "pickup_time": _iso_or_none(shipment.pickup_time),
-            "delivery_time": _iso_or_none(shipment.delivery_time),
-            "failure_reason": shipment.failure_reason,
-            "created_at": _iso_or_none(shipment.created_at),
+            "logistics_owner": _get(logistics_user, "name"),
+            "approved_by_logistics": _get(approver_user, "name"),
+            "delivery_boy": _get(delivery_user, "name"),
+            "assigned_time": _iso_or_none(_get(shipment, "assigned_time")),
+            "pickup_time": _iso_or_none(_get(shipment, "pickup_time")),
+            "delivery_time": _iso_or_none(_get(shipment, "delivery_time")),
+            "failure_reason": _get(shipment, "failure_reason"),
+            "created_at": _iso_or_none(_get(shipment, "created_at")),
         }
         detailed_rows.append(row)
 
