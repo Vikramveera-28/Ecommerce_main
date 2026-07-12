@@ -74,6 +74,20 @@ def _to_float(value):
     return float(round(float(value or 0), 2))
 
 
+def _iso_or_none(value):
+    parsed = as_datetime(value)
+    if parsed is not None:
+        return parsed.isoformat() + "Z"
+    if isinstance(value, str) and value:
+        return value if value.endswith("Z") else value + "Z"
+    return None
+
+
+def _mongo_collection(name: str):
+    mongo_db = get_mongo_db()
+    return mongo_db[name] if mongo_db is not None else None
+
+
 def _build_revenue_trend(valid_orders, valid_order_ids, items_by_order, shipments, start, end):
     total_seconds = max((end - start).total_seconds(), 1)
     if total_seconds <= 14 * 24 * 60 * 60:
@@ -143,6 +157,34 @@ def _build_revenue_trend(valid_orders, valid_order_ids, items_by_order, shipment
 @admin_bp.get("/users")
 @role_required(Role.ADMIN)
 def list_users():
+    if mongo_enabled():
+        users_collection = _mongo_collection("users")
+        users = list(users_collection.find({})) if users_collection is not None else []
+        role = request.args.get("role")
+        status = request.args.get("status")
+        filtered = []
+        for user in users:
+            if role and user.get("role") != role:
+                continue
+            if status and user.get("status") != status:
+                continue
+            filtered.append(user)
+        filtered.sort(key=lambda user: user.get("created_at") or datetime.min, reverse=True)
+        return jsonify(
+            [
+                {
+                    "id": doc_id(user),
+                    "name": user.get("name"),
+                    "email": user.get("email"),
+                    "phone": user.get("phone"),
+                    "role": user.get("role"),
+                    "status": user.get("status"),
+                    "created_at": _iso_or_none(user.get("created_at")),
+                }
+                for user in filtered
+            ]
+        )
+
     role = request.args.get("role")
     status = request.args.get("status")
 
@@ -177,6 +219,14 @@ def set_user_status(user_id: int):
     if new_status not in {s.value for s in AccountStatus}:
         return jsonify({"error": "Invalid account status"}), 400
 
+    if mongo_enabled():
+        users_collection = _mongo_collection("users")
+        user = users_collection.find_one({"id": user_id}) if users_collection is not None else None
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        users_collection.update_one({"id": user_id}, {"$set": {"status": new_status}})
+        return jsonify({"id": user_id, "status": new_status})
+
     user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
@@ -189,6 +239,22 @@ def set_user_status(user_id: int):
 @admin_bp.patch("/vendors/<int:vendor_id>/approve")
 @role_required(Role.ADMIN)
 def approve_vendor(vendor_id: int):
+    if mongo_enabled():
+        vendors_collection = _mongo_collection("vendor_profiles")
+        users_collection = _mongo_collection("users")
+        vendor = vendors_collection.find_one({"id": vendor_id}) if vendors_collection is not None else None
+        if not vendor:
+            return jsonify({"error": "Vendor not found"}), 404
+        vendors_collection.update_one({"id": vendor_id}, {"$set": {"kyc_status": VendorKycStatus.APPROVED.value}})
+        user_status = None
+        if users_collection is not None and vendor.get("user_id") is not None:
+            users_collection.update_one(
+                {"id": vendor["user_id"]},
+                {"$set": {"status": AccountStatus.ACTIVE.value, "role": Role.VENDOR.value}},
+            )
+            user_status = AccountStatus.ACTIVE.value
+        return jsonify({"vendor_id": vendor_id, "kyc_status": VendorKycStatus.APPROVED.value, "user_status": user_status})
+
     vendor = VendorProfile.query.get(vendor_id)
     if not vendor:
         return jsonify({"error": "Vendor not found"}), 404
@@ -206,6 +272,18 @@ def approve_vendor(vendor_id: int):
 @admin_bp.patch("/products/<int:product_id>/approve")
 @role_required(Role.ADMIN)
 def approve_product(product_id: int):
+    if mongo_enabled():
+        products_collection = _mongo_collection("products")
+        product = products_collection.find_one({"id": product_id}) if products_collection is not None else None
+        if not product:
+            return jsonify({"error": "Product not found"}), 404
+        data = request.get_json(silent=True) or {}
+        approved = bool(data.get("approved", True))
+        approval_status = ProductApprovalStatus.APPROVED.value if approved else ProductApprovalStatus.REJECTED.value
+        status = ProductStatus.ACTIVE.value if approved else ProductStatus.INACTIVE.value
+        products_collection.update_one({"id": product_id}, {"$set": {"approval_status": approval_status, "status": status}})
+        return jsonify({"id": product_id, "approval_status": approval_status, "status": status})
+
     product = Product.query.get(product_id)
     if not product:
         return jsonify({"error": "Product not found"}), 404
@@ -222,6 +300,12 @@ def approve_product(product_id: int):
 @admin_bp.get("/reports/sales")
 @role_required(Role.ADMIN)
 def sales_report():
+    if mongo_enabled():
+        mongo_db = get_mongo_db()
+        if mongo_db is None:
+            return jsonify({"error": "MongoDB is not configured"}), 500
+        return jsonify(build_sales_report(mongo_db))
+
     total_orders = db.session.query(func.count(Order.id)).scalar() or 0
     total_revenue = db.session.query(func.coalesce(func.sum(Order.total_amount), 0.0)).scalar() or 0.0
     cod_pending = db.session.query(func.count(Payment.id)).filter(Payment.payment_status == PaymentStatus.COD_PENDING.value).scalar() or 0
@@ -271,6 +355,21 @@ def operations_report():
     period, period_error = _resolve_period()
     if period_error:
         return jsonify({"error": period_error}), 400
+
+    if mongo_enabled():
+        mongo_db = get_mongo_db()
+        if mongo_db is None:
+            return jsonify({"error": "MongoDB is not configured"}), 500
+        search_q = (request.args.get("q") or "").strip().lower()
+        return jsonify(
+            build_operations_report(
+                mongo_db,
+                range_key=period["range"],
+                start=period["start"],
+                end=period["end"],
+                search_q=search_q,
+            )
+        )
 
     start = period["start"]
     end = period["end"]
