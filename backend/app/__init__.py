@@ -96,7 +96,7 @@ def create_app(config_object=Config):
         jti = jwt_payload.get("jti")
         if app.config.get("USE_MONGO_ONLY", False):
             mongo_db = app.extensions.get("mongo_db")
-            if not mongo_db:
+            if mongo_db is None:
                 return False
             return mongo_db["revoked_tokens"].find_one({"jti": jti}) is not None
         return RevokedToken.query.filter_by(jti=jti).first() is not None
