@@ -58,6 +58,13 @@ cmd /c npm run dev
 
 Open: `http://localhost:5173`
 
+## Netlify Frontend Deploy
+
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Set Netlify env var: `VITE_API_BASE_URL=https://your-backend.example.com/api/v1`
+- The included `frontend/netlify.toml` handles SPA routing so `/login`, `/admin`, and other client routes work on refresh.
+
 ## Docker
 
 Build and run the full app in one container:
