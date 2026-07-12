@@ -92,6 +92,13 @@ def _mongo_list_products():
     return list(products_collection.find({"deleted_at": None}))
 
 
+def _mongo_documents(collection_name: str):
+    collection = _mongo_collection(collection_name)
+    if collection is None:
+        return []
+    return list(collection.find({}))
+
+
 @catalog_bp.get("/products")
 def list_products():
     if mongo_enabled():
@@ -102,11 +109,11 @@ def list_products():
         tags = {}
         reviews = {}
 
-        for image in _mongo_collection("product_images").find({}) if _mongo_collection("product_images") else []:
+        for image in _mongo_documents("product_images"):
             images.setdefault(image.get("product_id"), []).append(image)
-        for tag in _mongo_collection("product_tags").find({}) if _mongo_collection("product_tags") else []:
+        for tag in _mongo_documents("product_tags"):
             tags.setdefault(tag.get("product_id"), []).append(tag)
-        for review in _mongo_collection("product_reviews").find({}) if _mongo_collection("product_reviews") else []:
+        for review in _mongo_documents("product_reviews"):
             reviews.setdefault(review.get("product_id"), []).append(review)
 
         category = (request.args.get("category") or "").strip().lower()
@@ -266,11 +273,11 @@ def get_product(product_id: int):
         images = {}
         tags = {}
         reviews = {}
-        for image in _mongo_collection("product_images").find({}) if _mongo_collection("product_images") else []:
+        for image in _mongo_documents("product_images"):
             images.setdefault(image.get("product_id"), []).append(image)
-        for tag in _mongo_collection("product_tags").find({}) if _mongo_collection("product_tags") else []:
+        for tag in _mongo_documents("product_tags"):
             tags.setdefault(tag.get("product_id"), []).append(tag)
-        for review in _mongo_collection("product_reviews").find({}) if _mongo_collection("product_reviews") else []:
+        for review in _mongo_documents("product_reviews"):
             reviews.setdefault(review.get("product_id"), []).append(review)
         return jsonify(_mongo_serialize_product(product, categories, vendors, images, tags, reviews))
 
