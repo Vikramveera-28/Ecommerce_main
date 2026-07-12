@@ -1,0 +1,12 @@
+.git
+.agents
+.codex
+frontend/node_modules
+frontend/dist
+backend/__pycache__
+backend/*.db
+backend/.pytest_cache
+*.pyc
+*.pyo
+*.pyd
+all_user_credentials_final.csv

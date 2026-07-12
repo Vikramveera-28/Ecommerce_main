@@ -15,6 +15,7 @@ from app.logistics.routes import logistics_bp
 from app.models import RevokedToken
 from app.orders.routes import orders_bp
 from app.seed.importer import register_seed_commands
+from app.seed.mongo_defaults import try_ensure_mongo_default_users
 from app.vendor_portal.routes import vendor_bp
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
@@ -47,6 +48,7 @@ def create_app(config_object=Config):
         )
         app.extensions["mongo_client"] = mongo_client
         app.extensions["mongo_db"] = mongo_client[mongo_db_name]
+        try_ensure_mongo_default_users(app.extensions["mongo_db"], app.logger)
     jwt.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
     limiter.init_app(app)

@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: "5000"
+      USE_MONGO_ONLY: "true"
+      MONGODB_URI: "mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority&appName=Ecommerce"
+      MONGODB_DB_NAME: "ecommerce"
+      JWT_SECRET_KEY: "change-this-jwt-secret"
+      CORS_ORIGINS: "*"

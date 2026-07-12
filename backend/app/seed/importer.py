@@ -41,6 +41,7 @@ from app.models import (
     Shipment,
     ShipmentStatus,
 )
+from app.seed.mongo_defaults import ensure_mongo_default_users
 from app.seed.mongo_migrator import migrate_sqlite_to_mongo
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -108,6 +109,26 @@ def register_seed_commands(app: Flask) -> None:
             f"- {row['table_name']}: sqlite={row['source_count']}, mongo={row['target_count']}" for row in result["tables"]
         )
         click.echo("\n".join(lines))
+
+    @app.cli.command("seed-mongo-defaults")
+    def seed_mongo_defaults_command():
+        """Create default admin/logistics/delivery users in MongoDB."""
+        if not app.config.get("USE_MONGO_ONLY", False):
+            raise click.ClickException("USE_MONGO_ONLY must be enabled.")
+
+        mongo_db = app.extensions.get("mongo_db")
+        if mongo_db is None:
+            raise click.ClickException("MongoDB is not configured.")
+
+        try:
+            created = ensure_mongo_default_users(mongo_db)
+        except Exception as exc:  # noqa: BLE001 - surface a readable CLI error
+            raise click.ClickException(str(exc)) from exc
+
+        if created:
+            click.echo(f"Created users: {', '.join(created)}")
+        else:
+            click.echo("Default MongoDB users already exist.")
 
     @app.cli.command("finance-backfill-ledger")
     def finance_backfill_ledger_command():

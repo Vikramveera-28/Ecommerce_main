@@ -9,6 +9,7 @@ from flask_jwt_extended import (
     get_jwt_identity,
     jwt_required,
 )
+from pymongo.errors import PyMongoError
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -58,6 +59,10 @@ def _serialize_mongo_user(user_doc):
     }
 
 
+def _mongo_db_unavailable():
+    return jsonify({"error": "Database unavailable. Please try again."}), 503
+
+
 @auth_bp.post("/register")
 @limiter.limit("10 per minute")
 def register():
@@ -78,23 +83,26 @@ def register():
         users = _mongo_users()
         if users is None:
             return jsonify({"error": "MongoDB is not configured"}), 500
-        if users.find_one({"email": email}):
-            return jsonify({"error": "Email already registered"}), 409
+        try:
+            if users.find_one({"email": email}):
+                return jsonify({"error": "Email already registered"}), 409
 
-        status = AccountStatus.ACTIVE.value if role == Role.CUSTOMER.value else AccountStatus.PENDING.value
-        now = datetime.now(timezone.utc)
-        result = users.insert_one(
-            {
-                "name": name,
-                "email": email,
-                "phone": phone,
-                "password_hash": generate_password_hash(password),
-                "role": role,
-                "status": status,
-                "created_at": now,
-                "updated_at": now,
-            }
-        )
+            status = AccountStatus.ACTIVE.value if role == Role.CUSTOMER.value else AccountStatus.PENDING.value
+            now = datetime.now(timezone.utc)
+            result = users.insert_one(
+                {
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
+                    "password_hash": generate_password_hash(password),
+                    "role": role,
+                    "status": status,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+        except PyMongoError:
+            return _mongo_db_unavailable()
         return jsonify({"id": str(result.inserted_id), "email": email, "role": role, "status": status}), 201
 
     if User.query.filter_by(email=email).first():
@@ -144,7 +152,10 @@ def login():
         if users is None:
             return jsonify({"error": "MongoDB is not configured"}), 500
 
-        user_doc = users.find_one({"email": email})
+        try:
+            user_doc = users.find_one({"email": email})
+        except PyMongoError:
+            return _mongo_db_unavailable()
         if not user_doc or not check_password_hash(user_doc.get("password_hash", ""), password):
             return jsonify({"error": "Invalid credentials"}), 401
         if user_doc.get("status") != AccountStatus.ACTIVE.value:
@@ -204,7 +215,10 @@ def refresh():
             mongo_id = ObjectId(user_id)
         except Exception:
             return jsonify({"error": "User not allowed"}), 403
-        user_doc = users.find_one({"_id": mongo_id})
+        try:
+            user_doc = users.find_one({"_id": mongo_id})
+        except PyMongoError:
+            return _mongo_db_unavailable()
         if not user_doc or user_doc.get("status") != AccountStatus.ACTIVE.value:
             return jsonify({"error": "User not allowed"}), 403
         claims = {
@@ -236,14 +250,17 @@ def logout():
         revoked_tokens = _mongo_revoked_tokens()
         if revoked_tokens is None:
             return jsonify({"error": "MongoDB is not configured"}), 500
-        revoked_tokens.insert_one(
-            {
-                "jti": jti,
-                "token_type": token_type,
-                "expires_at": expires_at,
-                "created_at": datetime.now(timezone.utc),
-            }
-        )
+        try:
+            revoked_tokens.insert_one(
+                {
+                    "jti": jti,
+                    "token_type": token_type,
+                    "expires_at": expires_at,
+                    "created_at": datetime.now(timezone.utc),
+                }
+            )
+        except PyMongoError:
+            return _mongo_db_unavailable()
     else:
         revoked = RevokedToken(jti=jti, token_type=token_type, expires_at=expires_at)
         db.session.add(revoked)

@@ -1,7 +1,7 @@
 # Multi-Vendor Ecommerce Platform
 
 Production-oriented scaffold implementing:
-- Flask + SQLAlchemy backend with JWT RBAC
+- Flask backend with JWT RBAC and MongoDB auth mode
 - Single React app with role-based workspaces
 - COD checkout flow
 - One-time SQLite seed import (`ecommerce.db`)
@@ -57,6 +57,18 @@ cmd /c npm run dev
 ```
 
 Open: `http://localhost:5173`
+
+## Docker
+
+Build and run the full app in one container:
+
+```bash
+docker compose up --build
+```
+
+Then open `http://localhost:5000`.
+
+The container builds the React app and serves it from Flask. The backend runs in Mongo-only mode.
 
 ## Core API Surface
 

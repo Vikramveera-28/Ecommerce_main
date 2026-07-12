@@ -6,5 +6,11 @@ export default defineConfig({
   server: {
     port: 5173,
     allowedHosts: ["ecommerce-main-bu3w.onrender.com"],
+    proxy: {
+      "/api": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+    },
   },
 });
