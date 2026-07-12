@@ -212,11 +212,14 @@ def refresh():
         if users is None:
             return jsonify({"error": "MongoDB is not configured"}), 500
         try:
-            mongo_id = ObjectId(user_id)
-        except Exception:
-            return jsonify({"error": "User not allowed"}), 403
-        try:
-            user_doc = users.find_one({"_id": mongo_id})
+            user_doc = None
+            try:
+                mongo_id = ObjectId(user_id)
+                user_doc = users.find_one({"_id": mongo_id})
+            except Exception:
+                user_doc = None
+            if user_doc is None:
+                user_doc = users.find_one({"id": user_id}) or users.find_one({"id": str(user_id)})
         except PyMongoError:
             return _mongo_db_unavailable()
         if not user_doc or user_doc.get("status") != AccountStatus.ACTIVE.value:

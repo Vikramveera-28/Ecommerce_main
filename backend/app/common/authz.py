@@ -13,11 +13,15 @@ def _lookup_user(user_id):
         mongo_db = current_app.extensions.get("mongo_db")
         if mongo_db is None:
             return None
+        user_doc = None
         try:
             mongo_id = ObjectId(str(user_id))
+            user_doc = mongo_db["users"].find_one({"_id": mongo_id})
         except Exception:
-            return None
-        return mongo_db["users"].find_one({"_id": mongo_id})
+            user_doc = None
+        if user_doc is not None:
+            return user_doc
+        return mongo_db["users"].find_one({"id": user_id}) or mongo_db["users"].find_one({"id": str(user_id)})
     return User.query.get(int(user_id))
 
 
