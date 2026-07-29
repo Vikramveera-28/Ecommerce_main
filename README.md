@@ -2,14 +2,17 @@
 
 Production-oriented scaffold implementing:
 - Flask backend with JWT RBAC and MongoDB auth mode
-- Single React app with role-based workspaces
+- Root React + Vite app with role-based workspaces
 - COD checkout flow
 - One-time SQLite seed import (`ecommerce.db`)
+- Single-domain Vercel deployment for web UI and API
 
 ## Repository Structure
 
+- `src/` React + Vite role-routed web app
 - `backend/` Flask API, models, seed import command, tests
-- `frontend/` React + Vite role-routed web app
+- `api/index.py` Vercel serverless entrypoint for the Flask API
+- `scripts/vercel-build.mjs` builds the web app and copies `dist/` to `public/`
 - `ecommerce.db` source catalog data
 
 ## Backend Quick Start
@@ -50,7 +53,6 @@ Default seed logistics (can be overridden via env):
 ## Frontend Quick Start
 
 ```bash
-cd frontend
 copy .env.example .env
 cmd /c npm install
 cmd /c npm run dev
@@ -58,12 +60,15 @@ cmd /c npm run dev
 
 Open: `http://localhost:5173`
 
-## Netlify Frontend Deploy
+## Vercel Deploy
 
-- Build command: `npm run build`
-- Publish directory: `dist`
-- Set Netlify env var: `VITE_API_BASE_URL=https://your-backend.example.com/api/v1`
-- The included `frontend/netlify.toml` handles SPA routing so `/login`, `/admin`, and other client routes work on refresh.
+- Root Directory: `./`
+- Build Command: `npm run vercel-build`
+- Install Command: `HUSKY=0 npm ci`
+- Output Directory: leave empty/default
+- Environment variables: `MONGODB_URI`, `MONGODB_DB`, `AUTH_SECRET`
+
+The same Vercel domain serves the app and API. Browser requests use same-origin `/api/v1`, `/api/*` routes are handled by `api/index.py`, and client routes like `/login` or `/home` fall back to the Vite app.
 
 ## Docker
 
@@ -96,5 +101,4 @@ pytest
 ## Notes
 
 - COD is the only payment method enabled in this build.
-- Deployment setup is intentionally deferred.
 - `seed-import` uses staging tables and idempotent upsert logic.
